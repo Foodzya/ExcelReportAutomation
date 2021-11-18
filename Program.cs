@@ -1,4 +1,5 @@
 ﻿using Spire.Xls;
+using System;
 using System.IO;
 using System.Linq;
 
@@ -31,14 +32,12 @@ namespace ReportAutomatizator
             Workbook destBook = new Workbook();
             destBook.LoadFromFile(@"C:\Users\a.borisyonok\Downloads\Excel\Продуктовый отчёт.xlsx");
 
-            Worksheet destSheet = destBook.Worksheets[3];
+            Worksheet destSheet = (Worksheet)destBook.Worksheets.First(w => w.Name == "Техническая (дата регистрации)");
 
             // Deletes last data from the destination source.
             destSheet.Range[destSheet.FirstRow, destSheet.FirstColumn, destSheet.LastRow, 84].Clear(ExcelClearOptions.ClearContent);
 
             CellRange destRange = destSheet.Range[sourceSheet.FirstRow, sourceSheet.FirstColumn, sourceSheet.LastRow, sourceSheet.LastColumn];
-
-            destBook.Save();
 
             sourceSheet.Copy(sourceRange, destRange);
 
@@ -47,15 +46,18 @@ namespace ReportAutomatizator
 
         public static void CalculateValuesFromDataRegistrationSheet(string value, string reportingMonth)
         {
-            int numberOfGroupColumn = 18;
+            // int numberOfGroupColumn = 18;
 
-            Workbook sourceBook = new Workbook();
-            sourceBook.LoadFromFile(@"C:\Users\a.borisyonok\Downloads\Excel\Продуктовый отчёт.xlsx");
+            Workbook summaryReport = new Workbook();
+            summaryReport.LoadFromFile(@"C:\Users\a.borisyonok\Downloads\Excel\Продуктовый отчёт.xlsx");
 
-            Worksheet sourceSheet = (Worksheet)sourceBook.Worksheets.First(p => p.Name == "Техническая (дата регистрации)");
+            Worksheet sourceSheet = (Worksheet)summaryReport.Worksheets.First(p => p.Name == "Техническая (дата регистрации)");
 
             // Detect number of rows in email [2] column (number of customers).
             int lastNotBlankRow = sourceSheet.Columns[2].Rows.Where(cs => !cs.IsBlank).Count() - 1;
+
+            // Finds the number of a column with the name "Группы".
+            int numberOfGroupColumn = sourceSheet.Range[sourceSheet.FirstRow, sourceSheet.FirstColumn, sourceSheet.FirstRow, sourceSheet.LastColumn].Columns.First(c => c.Value == "Группы").Column;
 
             // Getting the range of 18th column ("Группа").
             CellRange range = sourceSheet.Range[sourceSheet.FirstRow, numberOfGroupColumn, lastNotBlankRow, numberOfGroupColumn];
@@ -63,18 +65,38 @@ namespace ReportAutomatizator
             // Setting value for blank cells in column "Группа".
             range.Where(r => r.IsBlank).Select(r => r.Value = value).ToList();    
 
-            sourceBook.CalculateAllValue();      
+            summaryReport.CalculateAllValue();      
 
-            Worksheet reportMonthSheet = (Worksheet)sourceBook.Worksheets.First(w => w.Name == $"{reportingMonth}");
+            Worksheet reportMonthSheet = (Worksheet)summaryReport.Worksheets.First(w => w.Name == $"{reportingMonth}");
 
-            // Index of destination column (which needs to be copy-paste as value).
-            int destColIndex = 12;
+            var dateOfRegistration = Convert.ToDateTime(sourceSheet.Rows[2].CellList[13].Value);
+
+            CellRange dateRange = reportMonthSheet.Range[2, reportMonthSheet.FirstColumn, 2, reportMonthSheet.LastColumn];
+
+            int destColIndex = 0;
+
+            // This loop checks for registration date of a daily report
+            // then finds the column with such date in main report sheet
+            // for the future copy-paste as value.
+            foreach(var cellValue in dateRange)
+            {
+                DateTime cellDate = default;              
+
+                if(!cellValue.IsBlank && cellDate.Day == dateOfRegistration.Day && cellDate.Month == dateOfRegistration.Month && cellDate.Year == dateOfRegistration.Year)
+                {
+                    cellDate = Convert.ToDateTime(cellValue.Value);
+
+                    // Index of destination column (which needs to be copy-paste as value).
+                    destColIndex = cellValue.Column;
+                    break;
+                }
+            }
 
             CellRange columnToBePastAsValue = reportMonthSheet.Range[reportMonthSheet.FirstRow, destColIndex, reportMonthSheet.LastRow, destColIndex];
 
             reportMonthSheet.CopyColumn(columnToBePastAsValue, reportMonthSheet, destColIndex, CopyRangeOptions.OnlyCopyFormulaValue);     
 
-            sourceBook.Save();
+            summaryReport.Save();
         }
 
         public static void ConvertCsvToXlsx()
