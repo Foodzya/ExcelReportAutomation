@@ -11,47 +11,54 @@ namespace ReportAutomatizator
         {
             ExcelManipulation.ConvertCsvToXlsx();
 
-            ExcelManipulation.CopyPasteSheetToNewWorkbook("Total_Sol.xlsx");
+            ExcelManipulation.CopyPasteSheetToNewWorkbook("Total_Sol.xlsx", ExcelManipulation.GetMainReportFile("Продуктовый отчёт.xlsx"));
 
-            ExcelManipulation.CalculateValuesFromDataRegistrationSheet("No-affiliate", "ОКТЯБРЬ");
+            ExcelManipulation.CalculateValuesFromDataRegistrationSheet("No-affiliate", "ОКТЯБРЬ", ExcelManipulation.GetMainReportFile("Продуктовый отчёт.xlsx"));
         } 
     }
 
     static class ExcelManipulation 
     {
-        public static void CopyPasteSheetToNewWorkbook(string fileName)
+        public static Workbook GetMainReportFile(string dailyReportFile)
         {
-            // Load source Excel file.
             Workbook sourceBook = new Workbook();
-            sourceBook.LoadFromFile($"C:\\Users\\a.borisyonok\\Downloads\\Excel\\{fileName}");
 
-            Worksheet sourceSheet = sourceBook.Worksheets[0];
-            
-            CellRange sourceRange = sourceSheet.Range[sourceSheet.FirstRow, sourceSheet.FirstColumn, sourceSheet.LastRow, sourceSheet.LastColumn];
+            sourceBook.LoadFromFile($"C:\\Users\\a.borisyonok\\Downloads\\Excel\\{dailyReportFile}");
 
-            Workbook destBook = new Workbook();
-            destBook.LoadFromFile(@"C:\Users\a.borisyonok\Downloads\Excel\Продуктовый отчёт.xlsx");
-
-            Worksheet destSheet = (Worksheet)destBook.Worksheets.First(w => w.Name == "Техническая (дата регистрации)");
-
-            // Deletes last data from the destination source.
-            destSheet.Range[destSheet.FirstRow, destSheet.FirstColumn, destSheet.LastRow, 84].Clear(ExcelClearOptions.ClearContent);
-
-            CellRange destRange = destSheet.Range[sourceSheet.FirstRow, sourceSheet.FirstColumn, sourceSheet.LastRow, sourceSheet.LastColumn];
-
-            sourceSheet.Copy(sourceRange, destRange);
-
-            destBook.SaveToFile(@"C:\Users\a.borisyonok\Downloads\Excel\Продуктовый отчёт.xlsx");   
+            return sourceBook;
         }
 
-        public static void CalculateValuesFromDataRegistrationSheet(string value, string reportingMonth)
+        public static void CopyPasteSheetToNewWorkbook(string dailyReportFile, Workbook mainReportBook)
         {
-            // int numberOfGroupColumn = 18;
+            // Exact number of columns which are involved in replacement process.
+            int numberOfInvolvedColumns = 84;
 
-            Workbook summaryReport = new Workbook();
-            summaryReport.LoadFromFile(@"C:\Users\a.borisyonok\Downloads\Excel\Продуктовый отчёт.xlsx");
+            // Load source Excel file.
+            Workbook sourceBook = new Workbook();
+            sourceBook.LoadFromFile($"C:\\Users\\a.borisyonok\\Downloads\\Excel\\{dailyReportFile}");
 
-            Worksheet sourceSheet = (Worksheet)summaryReport.Worksheets.First(p => p.Name == "Техническая (дата регистрации)");
+            Worksheet dailyReportSheet = sourceBook.Worksheets[0];
+            
+            CellRange sourceRange = dailyReportSheet.Range[dailyReportSheet.FirstRow, dailyReportSheet.FirstColumn, dailyReportSheet.LastRow, dailyReportSheet.LastColumn];
+
+            Worksheet destSheet = (Worksheet)mainReportBook.Worksheets.First(w => w.Name == "Техническая (дата регистрации)");
+
+            // Deletes last data from the destination source.
+            // It needs when previous report had more lines than the current one.
+            destSheet.Range[destSheet.FirstRow, destSheet.FirstColumn, destSheet.LastRow, numberOfInvolvedColumns].Clear(ExcelClearOptions.ClearContent);
+
+            CellRange destRange = destSheet.Range[dailyReportSheet.FirstRow, dailyReportSheet.FirstColumn, dailyReportSheet.LastRow, dailyReportSheet.LastColumn];
+
+            dailyReportSheet.Copy(sourceRange, destRange);
+
+            mainReportBook.Save();  
+        }
+
+        // public static void CalculateValuesFromDataActionSheet()
+
+        public static void CalculateValuesFromDataRegistrationSheet(string valueForBlankFields, string reportMonthName, Workbook mainReportBook)
+        {
+            Worksheet sourceSheet = (Worksheet)mainReportBook.Worksheets.First(p => p.Name == "Техническая (дата регистрации)");
 
             // Detect number of rows in email [2] column (number of customers).
             int lastNotBlankRow = sourceSheet.Columns[2].Rows.Where(cs => !cs.IsBlank).Count() - 1;
@@ -63,11 +70,11 @@ namespace ReportAutomatizator
             CellRange range = sourceSheet.Range[sourceSheet.FirstRow, numberOfGroupColumn, lastNotBlankRow, numberOfGroupColumn];
 
             // Setting value for blank cells in column "Группа".
-            range.Where(r => r.IsBlank).Select(r => r.Value = value).ToList();    
+            range.Where(r => r.IsBlank).Select(r => r.Value = valueForBlankFields).ToList();    
 
-            summaryReport.CalculateAllValue();      
+            mainReportBook.CalculateAllValue();      
 
-            Worksheet reportMonthSheet = (Worksheet)summaryReport.Worksheets.First(w => w.Name == $"{reportingMonth}");
+            Worksheet reportMonthSheet = (Worksheet)mainReportBook.Worksheets.First(w => w.Name == $"{reportMonthName}");
 
             var dateOfRegistration = Convert.ToDateTime(sourceSheet.Rows[2].CellList[13].Value);
 
@@ -77,26 +84,38 @@ namespace ReportAutomatizator
 
             // This loop checks for registration date of a daily report
             // then finds the column with such date in main report sheet
-            // for the future copy-paste as value.
+            // to leave only values in cells in further.
             foreach(var cellValue in dateRange)
             {
-                DateTime cellDate = default;              
+                DateTime cellDate = default;   
 
-                if(!cellValue.IsBlank && cellDate.Day == dateOfRegistration.Day && cellDate.Month == dateOfRegistration.Month && cellDate.Year == dateOfRegistration.Year)
+                if(!cellValue.IsBlank) 
                 {
                     cellDate = Convert.ToDateTime(cellValue.Value);
 
-                    // Index of destination column (which needs to be copy-paste as value).
-                    destColIndex = cellValue.Column;
-                    break;
-                }
+                    if(cellDate.Day == dateOfRegistration.Day && cellDate.Month == dateOfRegistration.Month && cellDate.Year == dateOfRegistration.Year)
+                    {
+                        // Index of destination column (which needs to be copy-paste as value).
+                        destColIndex = cellValue.Column;
+                        break;
+                    }
+                }           
             }
 
-            CellRange columnToBePastAsValue = reportMonthSheet.Range[reportMonthSheet.FirstRow, destColIndex, reportMonthSheet.LastRow, destColIndex];
+            CellRange currentReportDayColumn = reportMonthSheet.Range[reportMonthSheet.FirstRow, destColIndex, reportMonthSheet.LastRow, destColIndex];
 
-            reportMonthSheet.CopyColumn(columnToBePastAsValue, reportMonthSheet, destColIndex, CopyRangeOptions.OnlyCopyFormulaValue);     
+            foreach(CellRange cell in currentReportDayColumn)
+            {
+                if(cell.HasFormula)
+                {
+                    var cellValue = cell.FormulaValue;
 
-            summaryReport.Save();
+                    cell.Clear(ExcelClearOptions.ClearContent);
+
+                    cell.Value2 = cellValue;
+                }
+            }
+            mainReportBook.Save();
         }
 
         public static void ConvertCsvToXlsx()
